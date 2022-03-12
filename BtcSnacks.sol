@@ -326,27 +326,6 @@ library SafeMath {
     }
 }
 
-// a library for performing various math operations
-library Math {
-    function min(uint x, uint y) internal pure returns (uint z) {
-        z = x < y ? x : y;
-    }
-
-    // babylonian method (https://en.wikipedia.org/wiki/Methods_of_computing_square_roots#Babylonian_method)
-    function sqrt(uint y) internal pure returns (uint z) {
-        if (y > 3) {
-            z = y;
-            uint x = y / 2 + 1;
-            while (x < z) {
-                z = x;
-                x = (y / x + x) / 2;
-            }
-        } else if (y != 0) {
-            z = 1;
-        }
-    }
-}
-
 contract ERC20 is Context, IERC20, IERC20Metadata {
     mapping(address => uint256) private _balances;
 
@@ -724,6 +703,8 @@ abstract contract Ownable is Context {
     }
 }
 
+
+
 /**
  * @dev Collection of functions related to the address type
  */
@@ -1028,229 +1009,185 @@ library SafeERC20 {
     }
 }
 
-interface IZoinksRouter {
-    function swapExactTokensForTokens(
-        uint amountIn,
-        uint amountOutMin,
-        address[] calldata path,
-        address to,
-        uint deadline
-    ) external    returns (uint[] memory amounts);
-}
-
-contract ZoinksToken is ERC20, Ownable {
-
+contract BtcSnacks is ERC20, Ownable {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
-    //maximum-integer
-    uint256 MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
+    // The ZOINKS TOKEN!
+    IERC20 public zoinks;
 
-    /// @dev The total number of tokens in circulation
-    uint256 private _totalSupply;
+    uint8 public _decimals = 18;
 
-    /// @dev initial supply of zoinkstoken
-    uint256 public constant INITIAL_ZOINKS_SUPPLY = 350000000000000000000000;
-    /// @dev initial supply for pulse
-    uint256 public constant INITIAL_PULSE_SUPPLY = 100000000000000000000000;
+    uint8 public _taxPercentForBuy = 5;
 
-    /// @dev initial LP of zoinks/busd for liquidity
-    // uint256 public constant INITIAL_ZOINKS_LIQUIDITY_SUPPLY = 1000;
-
-    /// @dev The circulation value
-    uint256 private _circulationSupply = 50000000000000000000000;
-
-    /// @dev the rebase contract address
-    address private _rebaseContract;
-
-    /// @dev private admin minter
-    address private _admin;
-
-    /// @dev Official percent of zoinks token balances for each account
-    mapping (address => uint256) private _balances;
-
-    /// @dev Allowance amounts on behalf of others
-    mapping(address => mapping(address => uint256)) private _allowances;
-
-    //busd contract
-    IERC20 public busd = IERC20(0xD0F7d3611d2faDc1838FBAc6c2Dbe19EC8cCE359);
-
-    //zoinks contract
-    IERC20 public zoinks = IERC20(address(this));
-
-    //snacks contract
-    IERC20 public snacks;
-
-    //router contract    
-    IZoinksRouter public router;
-
-    //pulse contract address
-    address public pulse;
-
-    //rate between zoinks and snacks
-    uint256 private RATE_ZOINKS_SNACKS = 1000000000000000000 * 0.000001; 
-
-    // Whether it is initialized
-    bool public isInitialized;
-
-    struct InflationRewards {
-        address accountAddress;
-        uint256 percentage;
-    }
-
-    InflationRewards[] public inflationRewards;
-
-    /**
-     * @notice Construct a new Zoinks token
-     */
-
-    constructor(address _zoinksAdmin) ERC20("ZOINKS", "ZOINKS") {
-        _admin = _zoinksAdmin;
-        _rebaseContract = _zoinksAdmin;
-        _mint(address(this), INITIAL_ZOINKS_SUPPLY);
-    }
-
-    /*
-     * @notice Initialize the contract
-     * @param _router: router contract address
-     * @param _snacks: snacks token address
-     * @param _pulse: pulse contract address
-     */
-    function initialize(
-        IZoinksRouter _router,
-        IERC20 _snacks, 
-        address _pulse
-    ) external {
-        require(!isInitialized, "Already initialized");
-
-        // Make this contract initialized
-        isInitialized = true;
-
-        router = _router; 
-        snacks = _snacks;    
-        pulse = _pulse;  
-
-        // Approve zoinks to snacks for buy(zoinks -> snacks)  
-        IERC20(address(this)).approve(address(snacks), MAX_INT); 
-        // Approve zoinks to router for swap(zoinks to busd)
-        busd.approve(address(router), MAX_INT);  
-        // send initial supply to pulse
-        mint(pulse, INITIAL_PULSE_SUPPLY);        
-    }   
-
-    modifier onlyRebaseContract() {
-        require(_rebaseContract == msg.sender, "not rebase contract");
-        _;
-    }
-
-    modifier onlyAdminContract() {
-        require(_admin == msg.sender, "not admin");
-        _;
-    }
-
-    function zoinksMint(uint256 _amount) public {
-        //transfer busd from msg.sender to zoinks contract
-        busd.safeTransferFrom(address(msg.sender), address(this), _amount);
-        //swap Busd to zoinks     
-        uint256 swappedAmount = swapZoinks(_amount);
-        //transfer zoinks from msg.sender to zoinks contract
-        transferFrom(address(msg.sender), address(this), swappedAmount);
-        //calculate snacks amount corresponding zoinks amount
-        uint256 snacksAmount = calculateBuyAmount(swappedAmount);
-        //buy snacks with zoinks
-        buySnacks(snacksAmount); 
-        //transfer snacks to Pulse
-        snacks.transfer(pulse, snacks.balanceOf(address(this)));
-    }
-
-    /*
-     * @notice buy snacks corresponding amount of zoinks
-     * @param _amount: amount of zoinks
-     */
-    function buySnacks(uint256 _amount) public{
-        if(_amount == 0){
-            return;
-        }
-        (bool success, bytes memory data) = address(snacks).call(abi.encodeWithSelector(bytes4(keccak256(bytes('buy(uint256)'))), _amount));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), 'ZOINKS: BUY_SNACKS_FAILED');
-    }
-
-    /*
-     * @notice swap zoinks to busd
-     * @param amount: amount of busd to swap
-     */
-    function swapZoinks(uint256 amount) public returns(uint256) {
-        if(amount == 0){
-            return 0;
-        }
-        uint256[] memory swappedAmount;    
-        address[] memory path = new address[](2);
-        path[0] = address(busd);
-        path[1] = address(this);
-        swappedAmount = router.swapExactTokensForTokens(amount, 0, path, address(msg.sender), 0xffffffff);       
-        return swappedAmount[1];
-    }
-
-    /*
-     * @notice calculate amount of snacks corresponding amount of zoinks
-     * @param _amount: amount of zoinks
-     */
-    function calculateBuyAmount(uint256 _amount) view public returns (uint256) {    
-        if(_amount == 0){
-            return _amount;
-        }
-        uint256 _snacksAmount;
-        uint256 totalSupply = snacks.totalSupply().div(10**18);
-        totalSupply = totalSupply.mul(2).add(1);
-        _snacksAmount = Math.sqrt((totalSupply**2).add(_amount.mul(8).div(RATE_ZOINKS_SNACKS)));
-        _snacksAmount = _snacksAmount.sub(totalSupply).div(2);        
-        return _snacksAmount;
-    }    
-
-    function mint(address _address, uint256 _amount) public onlyOwner {
-        _transfer(address(this), _address, _amount);
-    }
-
-    function burnZoinks(uint256 _twap_percent) external onlyRebaseContract {
-        uint256 burnAmount = _totalSupply.mul(_twap_percent).div(100);
-        _burn(address(this), burnAmount);
-    }
-
-    function rebaseInflations(uint256 _twap_percent) external onlyRebaseContract {
-        require(_twap_percent >= 1, "must big than 1");
-
-        uint256 inflationReward = _twap_percent.mul(_circulationSupply).div(100).div(5);
-
-        for(uint256 i = 0; i < inflationRewards.length; i++)
-        {
-            uint256 amount = inflationReward.mul(inflationRewards[i].percentage).div(100);
-            _transfer(address(this), inflationRewards[i].accountAddress, amount);
-
-            _circulationSupply += amount;
-        }
-    }
-
-    function setRebaseContract(address _account) external onlyAdminContract {
-        _rebaseContract = _account;
-    }
-
-    function setInflationReward(address _account, uint256 _percentage) public onlyAdminContract {
-        if(inflationRewards.length <= 7) {
-            InflationRewards memory inflationReward;
-            inflationReward.accountAddress = _account;
-            inflationReward.percentage = _percentage;
-            inflationRewards.push(inflationReward);
-        }
-    }
-
-    function resetInflationRewards() public onlyAdminContract {
-        delete inflationRewards;
-    }
-
-    function getChainId() internal view returns (uint) {
-        uint256 chainId;
-        assembly { chainId := chainid() }
-        return chainId;
-    }
+    uint8 public _taxPercentForRedeem = 10;
     
+    uint256 private _mutiplier = 1000000000000000000 * 0.00000001;
+
+    address public pulse; // pulse contract address
+    
+    address public zoinksbusd; // master contract address
+
+    address public snackspool; // snackspool contract address
+
+    address public zoinkspool; // zoinkspool contract address
+
+    // Seniorage address
+    address public seniorageAddress;
+   
+    struct Holder {
+        address accountAddress;
+        uint256 balance;
+    }
+
+    Holder[] public holderList;
+
+    event Buy(uint256 amount_);
+
+    event Redeem(uint256 amount_);
+
+    constructor(IERC20 _btc,
+        address _pulse,
+        address _master,
+        address _zoinkspool,
+        address _snackspool
+    ) ERC20("BTCSNACKS", "BTCSNACKS") {
+        zoinks = _btc;
+        pulse = _pulse;
+        zoinksbusd = _master;        
+        zoinkspool = _zoinkspool;
+        snackspool = _snackspool;
+
+        seniorageAddress = 0x1562C9d2525D37d7f610D0e8b170C7f583FDDcC2;
+    }
+
+    function decimals() public view override returns (uint8) {
+        return _decimals;
+    }
+
+    function calculateBuyAmount(uint256 amount_) view public returns (uint256) {
+        uint256 start = totalSupply().div(10 ** decimals()) + 1;
+        uint256 end = totalSupply().div(10 ** decimals()) + amount_;
+        return amount_.mul(start + end).div(2);
+    }
+
+    function calculateRedeemAmount(uint256 amount_) view public returns (uint256) {
+        uint256 start = totalSupply().div(10 ** decimals()) ;
+        uint256 end = totalSupply().div(10 ** decimals()) - amount_ + 1;
+        return amount_.mul(start + end).div(2);
+    }
+
+    function mint(address _address, uint256 _amount) public  {
+        _mint(_address, _amount);
+    }
+
+    function buy(uint256 amount_) public {
+        // calculate zoinks amount to get amount_ of snacks
+        uint256 zoinksAmount = calculateBuyAmount(amount_).mul(_mutiplier);
+
+        //check zoinks balance of msg sender
+        require(zoinks.balanceOf(address(msg.sender)) >= zoinksAmount, "ERC20: lack zoinks in contract");  
+
+        zoinks.safeTransferFrom(address(msg.sender), address(this), zoinksAmount);
+
+        uint256 snackAmount = amount_.mul(10**decimals());
+        uint256 feeAmount = snackAmount.mul(_taxPercentForBuy).div(100);
+       
+        _mint(pulse, feeAmount.mul(30).div(100));
+        _mint(zoinksbusd, feeAmount.mul(30).div(100));
+        _mint(snackspool, feeAmount.mul(15).div(100));
+        _mint(zoinkspool, feeAmount.mul(5).div(100));
+        _mint(seniorageAddress, feeAmount.mul(5).div(100));
+        //calculate and give fee of snacks to holders
+        uint256 holderFeeAmount = feeAmount.mul(15).div(100);
+        uint256 totalBalance = 0;
+
+        for(uint32 i = 0; i < holderList.length;i ++){
+            totalBalance += holderList[i].balance;
+        }
+
+        if(totalBalance == 0){ // if it is first buying
+            _mint(address(this), holderFeeAmount);
+        }else{
+            for(uint32 i = 0; i < holderList.length;i ++){
+                _mint(holderList[i].accountAddress, holderFeeAmount.mul(holderList[i].balance).div(totalBalance));
+            }
+        }
+        
+        //add msg.sender to holderList
+        bool isExist = false;
+        for(uint32 i = 0; i < holderList.length;i ++){
+            if(holderList[i].accountAddress == msg.sender){
+                holderList[i].balance = holderList[i].balance + snackAmount - feeAmount;
+                isExist = true;
+            }
+        }
+        if(!isExist){
+            Holder memory buyer;
+            buyer.accountAddress = msg.sender;
+            buyer.balance = snackAmount - feeAmount;
+            holderList.push(buyer);
+        }     
+           
+
+        _mint(address(msg.sender), snackAmount - feeAmount);
+
+        emit Buy(snackAmount);
+    }
+
+    function redeem(uint256 amount_) public {
+        // calculate zoinks amount to get amount_ of snacks
+        uint256 zoinksAmount = calculateRedeemAmount(amount_).mul(_mutiplier);
+
+        //check zoinks balance of snack contract
+        require(zoinks.balanceOf(address(this)) >= zoinksAmount, "ERC20: lack zoinks in contract");  
+
+        uint256 snackAmount = amount_.mul(10**decimals());
+        uint256 feeAmount = snackAmount.mul(_taxPercentForRedeem).div(100);
+
+        //check snack balance of msg sender
+        require(balanceOf(address(msg.sender)) >= snackAmount, "ERC20: lack snacks");  
+
+        zoinks.transfer(address(msg.sender), zoinksAmount);   
+        
+        _mint(pulse, feeAmount.mul(30).div(100));
+        _mint(zoinksbusd, feeAmount.mul(30).div(100));
+        _mint(snackspool, feeAmount.mul(15).div(100));
+        _mint(zoinkspool, feeAmount.mul(5).div(100));
+        _mint(seniorageAddress, feeAmount.mul(5).div(100));
+        //calculate and give fee of snacks to holders
+        uint256 holderFeeAmount = feeAmount.mul(15).div(100);
+        uint256 totalBalance = 0;
+
+        for(uint32 i = 0; i < holderList.length;i ++){
+            totalBalance += holderList[i].balance;
+        }
+        
+        //require(totalBalance > 0, "ERC20: not exist in holderList");     
+        
+        for(uint32 i = 0; i < holderList.length;i ++){
+            _mint(holderList[i].accountAddress, holderFeeAmount.mul(holderList[i].balance).div(totalBalance));
+        }
+        
+        
+        //add msg.sender to holderList
+        bool isExist = false;
+        for(uint32 i = 0; i < holderList.length;i ++){
+            if(holderList[i].accountAddress == msg.sender){
+                holderList[i].balance = holderList[i].balance - snackAmount;
+                isExist = true;
+            }
+        }
+        //require(isExist == true, "ERC20: not exist in holderList");     
+           
+
+        _burn(address(msg.sender), snackAmount);
+
+        emit Redeem(snackAmount);
+    }
+
+    // Set seniorage address by owner
+    function setSeniorage(address seniorage) public onlyOwner {
+        seniorageAddress = seniorage;
+    }
 }

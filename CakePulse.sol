@@ -326,26 +326,6 @@ library SafeMath {
     }
 }
 
-// a library for performing various math operations
-library Math {
-    function min(uint x, uint y) internal pure returns (uint z) {
-        z = x < y ? x : y;
-    }
-
-    // babylonian method (https://en.wikipedia.org/wiki/Methods_of_computing_square_roots#Babylonian_method)
-    function sqrt(uint y) internal pure returns (uint z) {
-        if (y > 3) {
-            z = y;
-            uint x = y / 2 + 1;
-            while (x < z) {
-                z = x;
-                x = (y / x + x) / 2;
-            }
-        } else if (y != 0) {
-            z = 1;
-        }
-    }
-}
 
 contract ERC20 is Context, IERC20, IERC20Metadata {
     mapping(address => uint256) private _balances;
@@ -724,6 +704,8 @@ abstract contract Ownable is Context {
     }
 }
 
+
+
 /**
  * @dev Collection of functions related to the address type
  */
@@ -1028,7 +1010,39 @@ library SafeERC20 {
     }
 }
 
-interface IZoinksRouter {
+// a library for performing various math operations
+library Math {
+    function min(uint x, uint y) internal pure returns (uint z) {
+        z = x < y ? x : y;
+    }
+
+    // babylonian method (https://en.wikipedia.org/wiki/Methods_of_computing_square_roots#Babylonian_method)
+    function sqrt(uint y) internal pure returns (uint z) {
+        if (y > 3) {
+            z = y;
+            uint x = y / 2 + 1;
+            while (x < z) {
+                z = x;
+                x = (y / x + x) / 2;
+            }
+        } else if (y != 0) {
+            z = 1;
+        }
+    }
+}
+
+
+interface IRouter {
+    function addLiquidity(
+        address tokenA,
+        address tokenB,
+        uint amountADesired,
+        uint amountBDesired,
+        uint amountAMin,
+        uint amountBMin,
+        address to,
+        uint deadline
+    ) external    returns (uint amountA, uint amountB, uint liquidity);
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
@@ -1038,219 +1052,188 @@ interface IZoinksRouter {
     ) external    returns (uint[] memory amounts);
 }
 
-contract ZoinksToken is ERC20, Ownable {
-
+contract CakePulse is ERC20 {
     using SafeMath for uint256;
-    using SafeERC20 for IERC20;
+    using SafeERC20 for IERC20;     
 
     //maximum-integer
-    uint256 MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
-
-    /// @dev The total number of tokens in circulation
-    uint256 private _totalSupply;
-
-    /// @dev initial supply of zoinkstoken
-    uint256 public constant INITIAL_ZOINKS_SUPPLY = 350000000000000000000000;
-    /// @dev initial supply for pulse
-    uint256 public constant INITIAL_PULSE_SUPPLY = 100000000000000000000000;
-
-    /// @dev initial LP of zoinks/busd for liquidity
-    // uint256 public constant INITIAL_ZOINKS_LIQUIDITY_SUPPLY = 1000;
-
-    /// @dev The circulation value
-    uint256 private _circulationSupply = 50000000000000000000000;
-
-    /// @dev the rebase contract address
-    address private _rebaseContract;
-
-    /// @dev private admin minter
-    address private _admin;
-
-    /// @dev Official percent of zoinks token balances for each account
-    mapping (address => uint256) private _balances;
-
-    /// @dev Allowance amounts on behalf of others
-    mapping(address => mapping(address => uint256)) private _allowances;
-
-    //busd contract
-    IERC20 public busd = IERC20(0xD0F7d3611d2faDc1838FBAc6c2Dbe19EC8cCE359);
-
-    //zoinks contract
-    IERC20 public zoinks = IERC20(address(this));
-
-    //snacks contract
-    IERC20 public snacks;
-
-    //router contract    
-    IZoinksRouter public router;
-
-    //pulse contract address
-    address public pulse;
-
-    //rate between zoinks and snacks
-    uint256 private RATE_ZOINKS_SNACKS = 1000000000000000000 * 0.000001; 
-
+    uint256 MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff; 
     // Whether it is initialized
     bool public isInitialized;
+    //zoinks contract
+    IERC20 public zoinks;
+    //snacks contract
+    IERC20 public snacks;
+    //router contract address    
+    IRouter public zoinksRouter;
+    IRouter public pancakeRouter = IRouter(0x481454b78F5F6442b1dCD4C28C0bF4a16b7C8C21);
+    //snackspool contract address
+    address public snackspool; 
+    //cakepool contract address
+    address public cakepool = 0x281F929FD3696f80e4dB0613804F6870265A39Ce; 
+    //busd contract
+    IERC20 public busd = IERC20(0xD0F7d3611d2faDc1838FBAc6c2Dbe19EC8cCE359);
+    //cake contract
+    IERC20 public cake = IERC20(0xB4452E6DCa8bB6Ff5C14Df586bc03ec8Bc4b9094);
 
-    struct InflationRewards {
-        address accountAddress;
-        uint256 percentage;
-    }
 
-    InflationRewards[] public inflationRewards;
+    event Circulate();
 
-    /**
-     * @notice Construct a new Zoinks token
-     */
-
-    constructor(address _zoinksAdmin) ERC20("ZOINKS", "ZOINKS") {
-        _admin = _zoinksAdmin;
-        _rebaseContract = _zoinksAdmin;
-        _mint(address(this), INITIAL_ZOINKS_SUPPLY);
+    constructor() ERC20("CAKEPULSE", "CAKEPULSE") {    
     }
 
     /*
      * @notice Initialize the contract
-     * @param _router: router contract address
+     * @param _master: master contract address
+     * @param _zoinks: zoinks token address
      * @param _snacks: snacks token address
-     * @param _pulse: pulse contract address
+     * @param _snackspool: snackspool contract address
      */
     function initialize(
-        IZoinksRouter _router,
+        IRouter _zoinksRouter,
+        IERC20 _zoinks, 
         IERC20 _snacks, 
-        address _pulse
+        address _snackspool
     ) external {
-        require(!isInitialized, "Already initialized");
+        //require(!isInitialized, "Already initialized");
 
         // Make this contract initialized
         isInitialized = true;
 
-        router = _router; 
-        snacks = _snacks;    
-        pulse = _pulse;  
+        zoinksRouter = _zoinksRouter; 
+        zoinks = _zoinks;
+        snacks = _snacks;     
+        snackspool = _snackspool;  
 
-        // Approve zoinks to snacks for buy(zoinks -> snacks)  
-        IERC20(address(this)).approve(address(snacks), MAX_INT); 
-        // Approve zoinks to router for swap(zoinks to busd)
-        busd.approve(address(router), MAX_INT);  
-        // send initial supply to pulse
-        mint(pulse, INITIAL_PULSE_SUPPLY);        
+        // Approve zoinks to snacks for buy(zoinks -> snacks)       
+        zoinks.approve(address(snacks), MAX_INT);  
+        // Approve snacks to snackspool for deposit(snacks to snacksPool)
+        snacks.approve(address(snackspool), MAX_INT);     
+        // Approve zoinks to router for swap(zoinks to busd), add liquidity
+        zoinks.approve(address(zoinksRouter), MAX_INT);     
+        // Approve busd to router for add liquidity
+        busd.approve(address(zoinksRouter), MAX_INT);   
+        // Approve cake to router for swap(busd to cake)
+        busd.approve(address(pancakeRouter), MAX_INT);  
+        // Approve cake to cakepool for deposit(cake to cakepool)
+        cake.approve(address(cakepool), MAX_INT);    
     }   
-
-    modifier onlyRebaseContract() {
-        require(_rebaseContract == msg.sender, "not rebase contract");
-        _;
-    }
-
-    modifier onlyAdminContract() {
-        require(_admin == msg.sender, "not admin");
-        _;
-    }
-
-    function zoinksMint(uint256 _amount) public {
-        //transfer busd from msg.sender to zoinks contract
-        busd.safeTransferFrom(address(msg.sender), address(this), _amount);
-        //swap Busd to zoinks     
-        uint256 swappedAmount = swapZoinks(_amount);
-        //transfer zoinks from msg.sender to zoinks contract
-        transferFrom(address(msg.sender), address(this), swappedAmount);
-        //calculate snacks amount corresponding zoinks amount
-        uint256 snacksAmount = calculateBuyAmount(swappedAmount);
-        //buy snacks with zoinks
-        buySnacks(snacksAmount); 
-        //transfer snacks to Pulse
-        snacks.transfer(pulse, snacks.balanceOf(address(this)));
-    }
-
+ 
     /*
-     * @notice buy snacks corresponding amount of zoinks
-     * @param _amount: amount of zoinks
+     * @main entry point
+     * @notice calculate amount of snacks corresponding amount of zoinks
+     * @param zoinksAmount: amount of zoinks
      */
-    function buySnacks(uint256 _amount) public{
-        if(_amount == 0){
+
+    function circulate() public{
+        // 1. Get balance of contract        
+        uint256 snacksBalance = snacks.balanceOf(address(this));
+        // 2. Stake Snacks -> Snacks Pool
+        deposit(snackspool, snacksBalance);
+        snacksBalance = snacks.balanceOf(address(this));
+        // 3. Claim reward Snacks
+        updatePool(snackspool);
+        deposit(snackspool, 0);
+        uint256 snacksReward = snacks.balanceOf(address(this)).sub(snacksBalance);
+        // 4. Redeem reward Snacks to get Zoinks
+        redeemSnacks(snacks, snacksReward);  
+        uint256 zoinksBalance = zoinks.balanceOf(address(this));
+        // 5. Swap Zoinks to BUSD in Zoinks Router
+        uint256 swappedAmount = swap(zoinksRouter, address(zoinks),address(busd),zoinksBalance);
+        // 6. Swap BUSD to Cake in Pancake swap Router        
+        swappedAmount = swap(pancakeRouter, address(busd),address(cake),swappedAmount);
+        // 7. Stake Cake to Cake Pool in Pancake swap
+        deposit(cakepool, swappedAmount);
+        // 8. Claim reward Cake in Pancake swap
+        deposit(cakepool, 0);        
+
+        emit Circulate();
+    }    
+     
+    /*
+     * @notice buy snacks/ethSnacks/btcSnacks corresponding amount of zoinks/eth/btc
+     * @param _snacks: snacks/ethSnacks/btcSnacks contract
+     * @param _amount: amount of zoinks/eth/btc
+     * @param rate: rate of tokens
+     */
+    function buySnacks(IERC20 _snacks, uint256 _amount, uint256 rate) public{
+        uint256 amount = calculateBuyAmount(_snacks, _amount, rate);
+        if(amount == 0){
             return;
         }
-        (bool success, bytes memory data) = address(snacks).call(abi.encodeWithSelector(bytes4(keccak256(bytes('buy(uint256)'))), _amount));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), 'ZOINKS: BUY_SNACKS_FAILED');
+        (bool success, bytes memory data) = address(_snacks).call(abi.encodeWithSelector(bytes4(keccak256(bytes('buy(uint256)'))), amount));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'PULSE: BUY_SNACKS_FAILED');
     }
-
     /*
-     * @notice swap zoinks to busd
-     * @param amount: amount of busd to swap
+     * @notice buyback snacks/ethSnacks/btcSnacks
+     * @param _snacks: address of snacks/ethSnacks/btcSnacks
+     * @param amount: amount of snacks/ethSnacks/btcSnacks to redeem
      */
-    function swapZoinks(uint256 amount) public returns(uint256) {
+    function redeemSnacks(IERC20 _snacks, uint256 amount) public{
+        if(amount == 0){
+            return;
+        }
+        amount = amount.div(10**18);
+        (bool success, bytes memory data) = address(_snacks).call(abi.encodeWithSelector(bytes4(keccak256(bytes('redeem(uint256)'))), amount));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'PULSE: REDEEM_SNACKS_FAILED');
+    }
+    /*
+     * @notice deposit token to pool
+     * @param amount: amount to deposit
+     */
+    function deposit(address pool,uint256 amount) public{
+        (bool success, bytes memory data) = pool.call(abi.encodeWithSelector(bytes4(keccak256(bytes('deposit(uint256)'))), amount));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'PULSE: DEPOSIT_POOL_FAILED');
+    } 
+     /*
+     * @notice update pool for calculate reward
+     */
+    function updatePool(address pool) public{
+        (bool success, bytes memory data) = pool.call(abi.encodeWithSelector(bytes4(keccak256(bytes('updatePool()')))));
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'PULSE: UPDATE_POOL_FAILED');
+    } 
+    /*
+     * @notice swap tokens
+     * @param amount: amount to swap
+     */
+    function swap(IRouter router, address from, address to, uint256 amount) public returns(uint256) {
         if(amount == 0){
             return 0;
         }
         uint256[] memory swappedAmount;    
         address[] memory path = new address[](2);
-        path[0] = address(busd);
-        path[1] = address(this);
-        swappedAmount = router.swapExactTokensForTokens(amount, 0, path, address(msg.sender), 0xffffffff);       
+        path[0] = from;
+        path[1] = to;
+        swappedAmount = router.swapExactTokensForTokens(amount, 0, path, address(this), 0xffffffff);       
         return swappedAmount[1];
+    }
+    /*
+     * @notice add liquidity with zoinks and busd
+     * @param amount: amount of zoinks and busd
+     */
+    function addLiquidity(IRouter router, uint256 amount) public returns(uint256) {
+        if(amount == 0){
+            return 0;
+        }
+        (uint amountA, uint amountB, uint liquidity) = router.addLiquidity(address(zoinks), address(busd), amount, amount, 0 ,0, address(this), 0xffffffff);      
+        return liquidity;
     }
 
     /*
-     * @notice calculate amount of snacks corresponding amount of zoinks
-     * @param _amount: amount of zoinks
+     * @notice calculate amount of snacks/ethSnacks/btcSnacks corresponding amount of zoinks/etc/btc
+     * @param _snacks: snacks/ethSnacks/btcSnacks contract
+     * @param _amount: amount of zoinks/eth/btc
+     * @param rate: rate of tokens
      */
-    function calculateBuyAmount(uint256 _amount) view public returns (uint256) {    
+    function calculateBuyAmount(IERC20 _snacks, uint256 _amount, uint256 rate) view public returns (uint256) {    
         if(_amount == 0){
             return _amount;
         }
         uint256 _snacksAmount;
-        uint256 totalSupply = snacks.totalSupply().div(10**18);
+        uint256 totalSupply = _snacks.totalSupply().div(10**18);
         totalSupply = totalSupply.mul(2).add(1);
-        _snacksAmount = Math.sqrt((totalSupply**2).add(_amount.mul(8).div(RATE_ZOINKS_SNACKS)));
+        _snacksAmount = Math.sqrt((totalSupply**2).add(_amount.mul(8).div(rate)));
         _snacksAmount = _snacksAmount.sub(totalSupply).div(2);        
         return _snacksAmount;
-    }    
-
-    function mint(address _address, uint256 _amount) public onlyOwner {
-        _transfer(address(this), _address, _amount);
-    }
-
-    function burnZoinks(uint256 _twap_percent) external onlyRebaseContract {
-        uint256 burnAmount = _totalSupply.mul(_twap_percent).div(100);
-        _burn(address(this), burnAmount);
-    }
-
-    function rebaseInflations(uint256 _twap_percent) external onlyRebaseContract {
-        require(_twap_percent >= 1, "must big than 1");
-
-        uint256 inflationReward = _twap_percent.mul(_circulationSupply).div(100).div(5);
-
-        for(uint256 i = 0; i < inflationRewards.length; i++)
-        {
-            uint256 amount = inflationReward.mul(inflationRewards[i].percentage).div(100);
-            _transfer(address(this), inflationRewards[i].accountAddress, amount);
-
-            _circulationSupply += amount;
-        }
-    }
-
-    function setRebaseContract(address _account) external onlyAdminContract {
-        _rebaseContract = _account;
-    }
-
-    function setInflationReward(address _account, uint256 _percentage) public onlyAdminContract {
-        if(inflationRewards.length <= 7) {
-            InflationRewards memory inflationReward;
-            inflationReward.accountAddress = _account;
-            inflationReward.percentage = _percentage;
-            inflationRewards.push(inflationReward);
-        }
-    }
-
-    function resetInflationRewards() public onlyAdminContract {
-        delete inflationRewards;
-    }
-
-    function getChainId() internal view returns (uint) {
-        uint256 chainId;
-        assembly { chainId := chainid() }
-        return chainId;
-    }
-    
+    }     
 }

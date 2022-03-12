@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.6.6;
+pragma solidity =0.6.6;
 
 // helper methods for interacting with ERC20 tokens and sending ETH that do not consistently return true/false
 library TransferHelper {
@@ -272,12 +272,12 @@ library ZoinksLibrary {
     // calculates the CREATE2 address for a pair without making any external calls
     function pairFor(address factory, address tokenA, address tokenB) internal pure returns (address pair) {
         (address token0, address token1) = sortTokens(tokenA, tokenB);
-        pair = address(uint(keccak256(abi.encodePacked(
+        pair = address(uint160(uint(keccak256(abi.encodePacked(
                 hex'ff',
                 factory,
                 keccak256(abi.encodePacked(token0, token1)),
-                hex'c34bcfffd400b4f679a327e9a36bdd7d1995f7ab8f414fca6f29766fc81c3c61' // init code hash
-            ))));
+                hex'7f234566ce53d857747668951ae53d209359b6e40952f84890550e2270ac65c2' // init code hash
+            )))));
     }
 
     // fetches and sorts the reserves for a pair
@@ -398,7 +398,8 @@ contract ZoinksRouter is IZoinksRouter02 {
         if (IZoinksFactory(factory).getPair(tokenA, tokenB) == address(0)) {
             IZoinksFactory(factory).createPair(tokenA, tokenB);
         }
-        (uint reserveA, uint reserveB) = ZoinksLibrary.getReserves(factory, tokenA, tokenB);
+        (uint reserveA, uint reserveB) = ZoinksLibrary.getReserves(factory, tokenA, tokenB); 
+        
         if (reserveA == 0 && reserveB == 0) {
             (amountA, amountB) = (amountADesired, amountBDesired);
         } else {

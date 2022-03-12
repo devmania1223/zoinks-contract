@@ -770,7 +770,7 @@ library SafeBEP20 {
     }
 }
 
-contract ZoinksStakingPool is Ownable, ReentrancyGuard {
+contract SnacksStakingPool is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeBEP20 for IBEP20;
 
@@ -781,7 +781,7 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
     bool public hasUserLimit;
 
     // Whether it is initialized
-    bool public isInitialized;  
+    bool public isInitialized;
 
     //* Accrued token per share
     uint256 public accTokenPerShare;
@@ -793,7 +793,7 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
     uint256 public startBlock;
 
     //* The block number of the last pool update
-    uint256 public lastRewardBlock;  
+    uint256 public lastRewardBlock;
 
     // The pool limit (0 if none)
     uint256 public poolLimitPerUser;
@@ -805,8 +805,9 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
     uint256 public PRECISION_FACTOR;
 
     // The reward token
-    IBEP20 public rewardToken;  //reward zoinks token
-    IBEP20 public rewardSnacksToken;
+    IBEP20 public rewardToken;    // reward snacks token    
+    IBEP20 public rewardEthSnacksToken;
+    IBEP20 public rewardBtcSnacksToken;
 
     // The staked token
     IBEP20 public stakedToken;
@@ -817,9 +818,10 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
     //maximum-integer
     uint256 MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
 
-    uint256 totalStakedZoinks;  // Total staked amount = totalSupply() - reward
-    uint256 totalRewardDebtZoinks;  // Total Reward debt of zoinks
+    uint256 totalStakedSnacks;  // Total staked snacks = totalSupply() - rewardSnacks
     uint256 totalRewardDebtSnacks;  // Total Reward debt of snacks
+    uint256 totalRewardDebtEthSnacks;  // Total Reward debt of ethSnacks
+    uint256 totalRewardDebtBtcSnacks;  // Total Reward debt of btcSnacks
 
     // Info of each user that stakes tokens (stakedToken)
     mapping(address => UserInfo) public userInfo;
@@ -827,8 +829,9 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
 
     struct UserInfo {
         uint256 amount; // How many staked tokens the user has provided
-        uint256 rewardDebt; // Reward debt of zoinks. See explanation below.
-        uint256 rewardDebtSnacks; // Reward debt of snacks. See explanation below.
+        uint256 rewardDebt; // Reward debt of snacks. See explanation below.
+        uint256 rewardDebtEthSnacks; // Reward debt of ethSnacks. See explanation below.
+        uint256 rewardDebtBtcSnacks; // Reward debt of btcSnacks. See explanation below.
         uint lastWithdrawDate; // Last Withdraw Time
     }
 
@@ -841,23 +844,25 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
     event RewardsStop(uint256 blockNumber);
     event Withdraw(address indexed user, uint256 amount);
 
-    constructor() public {
+    constructor(){
         SMART_CHEF_FACTORY = msg.sender;
-        seniorageAddress = 0x467927774B59F7cB023863b07960669f958EC19a;
+        seniorageAddress = 0x467927774B59F7cB023863b07960669f958EC19a;            
     }
 
     /*
      * @notice Initialize the contract
      * @param _stakedToken: staked token address
-     * @param _rewardToken: reward zoinks token address
-     * @param _rewardSnacksToken: reward snacks token address
+     * @param _rewardToken: reward snacks token address
+     * @param _rewardEthSnacksToken: reward ethSnacks token address
+     * @param _rewardBtcSnacksToken: reward btcSnacks token address
      * @param _poolLimitPerUser: pool limit per user in stakedToken (if any, else 0)
      * @param _admin: admin address with ownership
      */
     function initialize(
         IBEP20 _stakedToken,
-        IBEP20 _rewardToken,
-        IBEP20 _rewardSnacksToken,
+        IBEP20 _rewardToken, 
+        IBEP20 _rewardEthSnacksToken, 
+        IBEP20 _rewardBtcSnacksToken,
         uint256 _poolLimitPerUser,
         address _admin
     ) external {
@@ -869,11 +874,13 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
 
         stakedToken = _stakedToken;
         rewardToken = _rewardToken;
-        rewardSnacksToken = _rewardSnacksToken;
+        rewardEthSnacksToken = _rewardEthSnacksToken;
+        rewardBtcSnacksToken = _rewardBtcSnacksToken;
 
         //Approve contracts  for rewardTransfer
         rewardToken.approve(address(this), MAX_INT);
-        rewardSnacksToken.approve(address(this), MAX_INT);
+        rewardEthSnacksToken.approve(address(this), MAX_INT);
+        rewardBtcSnacksToken.approve(address(this), MAX_INT);    
 
         if (_poolLimitPerUser > 0) {
             hasUserLimit = true;
@@ -883,7 +890,7 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
         uint256 decimalsRewardToken = uint256(rewardToken.decimals());
         require(decimalsRewardToken < 30, "Must be inferior to 30");
 
-        PRECISION_FACTOR = uint256(10**(uint256(30).sub(decimalsRewardToken)));
+        PRECISION_FACTOR = uint256(10**(uint256(30).sub(decimalsRewardToken)));    
 
         // Transfer ownership to the admin address who becomes owner of the contract
         transferOwnership(_admin);
@@ -913,20 +920,21 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
         if (hasUserLimit) {
             require(_amount.add(user.amount) <= poolLimitPerUser, "User amount above limit");
         }
-      
+
         if (user.amount > 0) {
             rewardTransfer();
         }
 
         if (_amount > 0) {
             user.amount = user.amount.add(_amount);
-            totalStakedZoinks = totalStakedZoinks.add(_amount);
+            totalStakedSnacks = totalStakedSnacks.add(_amount);
             stakedToken.safeTransferFrom(address(msg.sender), address(this), _amount);
             addUser();
         }
-       
+        
         emit Deposit(msg.sender, _amount);
     }
+    
 
     /*
      * @notice Withdraw staked tokens and collect reward tokens
@@ -935,10 +943,10 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
     function withdraw(uint256 _amount) external nonReentrant {
         UserInfo storage user = userInfo[msg.sender];
         require(user.amount >= _amount, "Amount to withdraw too high");
-       
+
         if (_amount > 0) {
             user.amount = user.amount.sub(_amount);
-            totalStakedZoinks = totalStakedZoinks.sub(_amount);
+            totalStakedSnacks = totalStakedSnacks.sub(_amount);
 
             if (user.lastWithdrawDate == 0 || (user.lastWithdrawDate + 1 days > block.timestamp)) {
                 stakedToken.safeTransfer(seniorageAddress, _amount.div(2));
@@ -947,7 +955,7 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
             emit Withdraw(seniorageAddress, _amount.div(2));
             } else {
                 stakedToken.safeTransfer(address(msg.sender), _amount);
-        emit Withdraw(msg.sender, _amount);
+                emit Withdraw(msg.sender, _amount);
             }
             user.lastWithdrawDate = block.timestamp;
         }
@@ -962,12 +970,14 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
     function emergencyWithdraw() external nonReentrant {
         UserInfo storage user = userInfo[msg.sender];
         uint256 amountToTransfer = user.amount;
-        totalStakedZoinks = totalStakedZoinks.sub(user.amount);
+        totalStakedSnacks = totalStakedSnacks.sub(user.amount);
         user.amount = 0;        
-        totalRewardDebtZoinks = totalRewardDebtZoinks.sub(user.rewardDebt);
+        totalRewardDebtSnacks = totalRewardDebtSnacks.sub(user.rewardDebt);
         user.rewardDebt = 0;
-        totalRewardDebtSnacks = totalRewardDebtSnacks.sub(user.rewardDebtSnacks);
-        user.rewardDebtSnacks = 0;
+        totalRewardDebtEthSnacks = totalRewardDebtEthSnacks.sub(user.rewardDebtEthSnacks);
+        user.rewardDebtEthSnacks = 0;
+        totalRewardDebtBtcSnacks = totalRewardDebtBtcSnacks.sub(user.rewardDebtBtcSnacks);
+        user.rewardDebtBtcSnacks = 0;
 
         if (amountToTransfer > 0) {
             if (user.lastWithdrawDate == 0 || (user.lastWithdrawDate + 1 days > block.timestamp)) {
@@ -999,6 +1009,8 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
     function recoverWrongTokens(address _tokenAddress, uint256 _tokenAmount) external onlyOwner {
         require(_tokenAddress != address(stakedToken), "Cannot be staked token");
         require(_tokenAddress != address(rewardToken), "Cannot be reward token");
+        require(_tokenAddress != address(rewardEthSnacksToken), "Cannot be reward token");
+        require(_tokenAddress != address(rewardBtcSnacksToken), "Cannot be reward token");
 
         IBEP20(_tokenAddress).safeTransfer(address(msg.sender), _tokenAmount);
 
@@ -1029,7 +1041,7 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
             poolLimitPerUser = 0;
         }
         emit NewPoolLimit(poolLimitPerUser);
-    }   
+    }
 
     /*
      * @notice Update reward per block
@@ -1060,48 +1072,61 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
         lastRewardBlock = startBlock;
 
         emit NewStartAndEndBlocks(_startBlock, _bonusEndBlock);
-    } 
+    }
 
     /*
      * @notice View function to see pending reward on frontend.
      * @param _user: user address
      * @return Pending reward for a given user
      */
-    function pendingReward(address _user) external view returns (uint256) {
-       return userInfo[_user].rewardDebt;
+    function pendingReward(address _user) external view returns (uint256) { 
+        return userInfo[_user].rewardDebt;
     }
 
     /*
      * @notice Update reward variables of the given pool to be up-to-date.
      */
     function updatePool() public {
-         if (totalStakedZoinks == 0) {
+
+        if (totalStakedSnacks == 0) {
             return;
         }
 
-        uint256 rewardZoinks = rewardToken.balanceOf(address(this)).sub(totalRewardDebtZoinks);
+        uint256 rewardSnacks = rewardToken.balanceOf(address(this)).sub(totalRewardDebtSnacks);
         if(stakedToken == rewardToken){
-            rewardZoinks = rewardZoinks.sub(totalStakedZoinks);
-        }
-        if (rewardZoinks > 0) {
-            for (uint i = 0; i < userAddressList.length; i ++) {
-                userInfo[userAddressList[i]].rewardDebt += rewardZoinks.mul(userInfo[userAddressList[i]].amount).div(totalStakedZoinks);
-            }
-
-            totalRewardDebtZoinks = totalRewardDebtZoinks.add(rewardZoinks);          
-        }   
-
-        uint256 rewardSnacks = rewardSnacksToken.balanceOf(address(this)).sub(totalRewardDebtSnacks);
-        if(stakedToken == rewardSnacksToken){
-            rewardSnacks = rewardSnacks.sub(totalStakedZoinks);
+            rewardSnacks = rewardSnacks.sub(totalStakedSnacks);
         }
         if (rewardSnacks > 0) {
             for (uint i = 0; i < userAddressList.length; i ++) {
-                userInfo[userAddressList[i]].rewardDebtSnacks += rewardSnacks.mul(userInfo[userAddressList[i]].amount).div(totalStakedZoinks);
+                userInfo[userAddressList[i]].rewardDebt += rewardSnacks.mul(userInfo[userAddressList[i]].amount).div(totalStakedSnacks);
             }
 
             totalRewardDebtSnacks = totalRewardDebtSnacks.add(rewardSnacks);          
-        } 
+        }   
+
+        uint256 rewardEthSnacks = rewardEthSnacksToken.balanceOf(address(this)).sub(totalRewardDebtEthSnacks);
+        if(stakedToken == rewardEthSnacksToken){
+            rewardEthSnacks = rewardEthSnacks.sub(totalStakedSnacks);
+        }
+        if (rewardEthSnacks > 0) {
+            for (uint i = 0; i < userAddressList.length; i ++) {
+                userInfo[userAddressList[i]].rewardDebtEthSnacks += rewardEthSnacks.mul(userInfo[userAddressList[i]].amount).div(totalStakedSnacks);
+            }
+
+            totalRewardDebtEthSnacks = totalRewardDebtEthSnacks.add(rewardEthSnacks);          
+        }
+
+        uint256 rewardBtcSnacks = rewardBtcSnacksToken.balanceOf(address(this)).sub(totalRewardDebtBtcSnacks);
+        if(stakedToken == rewardBtcSnacksToken){
+            rewardBtcSnacks = rewardBtcSnacks.sub(totalStakedSnacks);
+        }
+        if (rewardBtcSnacks > 0) {
+            for (uint i = 0; i < userAddressList.length; i ++) {
+                userInfo[userAddressList[i]].rewardDebtBtcSnacks += rewardBtcSnacks.mul(userInfo[userAddressList[i]].amount).div(totalStakedSnacks);
+            }
+
+            totalRewardDebtBtcSnacks = totalRewardDebtBtcSnacks.add(rewardBtcSnacks);          
+        }  
     }
 
     // Safe reward transfer function, just in case if rounding error causes pool to not have enough snacks.
@@ -1110,15 +1135,21 @@ contract ZoinksStakingPool is Ownable, ReentrancyGuard {
         if(rewardDebt > 0){
             rewardToken.transferFrom(address(this), msg.sender, rewardDebt);
             userInfo[msg.sender].rewardDebt = 0;
-            totalRewardDebtZoinks = totalRewardDebtZoinks.sub(rewardDebt);
+            totalRewardDebtSnacks = totalRewardDebtSnacks.sub(rewardDebt);
         }
-        uint256 rewardDebtSnacks = userInfo[msg.sender].rewardDebtSnacks;
-        if(rewardDebtSnacks > 0){
-            rewardSnacksToken.transferFrom(address(this), msg.sender, rewardDebtSnacks);
-            userInfo[msg.sender].rewardDebtSnacks = 0;
-            totalRewardDebtSnacks = totalRewardDebtSnacks.sub(rewardDebtSnacks);
-        } 
-    }  
+        uint256 rewardDebtEthSnacks = userInfo[msg.sender].rewardDebtEthSnacks;
+        if(rewardDebtEthSnacks > 0){
+            rewardEthSnacksToken.transferFrom(address(this), msg.sender, rewardDebtEthSnacks);
+            userInfo[msg.sender].rewardDebtEthSnacks = 0;
+            totalRewardDebtEthSnacks = totalRewardDebtEthSnacks.sub(rewardDebtEthSnacks);
+        }
+        uint256 rewardDebtBtcSnacks = userInfo[msg.sender].rewardDebtBtcSnacks;
+        if(rewardDebtBtcSnacks > 0){
+            rewardBtcSnacksToken.transferFrom(address(this), msg.sender, rewardDebtBtcSnacks);
+            userInfo[msg.sender].rewardDebtBtcSnacks = 0;
+            totalRewardDebtBtcSnacks = totalRewardDebtBtcSnacks.sub(rewardDebtBtcSnacks);
+        }      
+    }   
 
     /*
      * @notice Return reward multiplier over the given _from to _to block.

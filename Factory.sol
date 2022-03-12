@@ -274,6 +274,7 @@ contract ZoinksPair is IZoinksPair, ZoinksERC20 {
     uint public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
 
     uint private unlocked = 1;
+    
     modifier lock() {
         require(unlocked == 1, 'Zoinks: LOCKED');
         unlocked = 0;
@@ -307,6 +308,7 @@ contract ZoinksPair is IZoinksPair, ZoinksERC20 {
     constructor() public {
         factory = msg.sender;
     }
+    
 
     // called once by the factory at time of deployment
     function initialize(address _token0, address _token1) external {
@@ -447,7 +449,7 @@ contract ZoinksPair is IZoinksPair, ZoinksERC20 {
 }
 
 contract ZoinksFactory is IZoinksFactory {
-    bytes32 public constant INIT_CODE_PAIR_HASH = keccak256(abi.encodePacked(type(ZoinksPair).creationCode));
+    bytes32 public INIT_CODE_PAIR_HASH = keccak256(abi.encodePacked(type(ZoinksPair).creationCode));
 
     address public feeTo;
     address public feeToSetter;
@@ -479,6 +481,7 @@ contract ZoinksFactory is IZoinksFactory {
         getPair[token0][token1] = pair;
         getPair[token1][token0] = pair; // populate mapping in the reverse direction
         allPairs.push(pair);
+
         emit PairCreated(token0, token1, pair, allPairs.length);
     }
 
