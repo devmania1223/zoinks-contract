@@ -1046,9 +1046,6 @@ contract ZoinksToken is ERC20, Ownable {
     //maximum-integer
     uint256 MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
 
-    /// @dev The total number of tokens in circulation
-    uint256 private _totalSupply;
-
     /// @dev initial supply of zoinkstoken
     uint256 public constant INITIAL_ZOINKS_SUPPLY = 350000000000000000000000;
     /// @dev initial supply for pulse
@@ -1212,14 +1209,14 @@ contract ZoinksToken is ERC20, Ownable {
     }
 
     function burnZoinks(uint256 _twap_percent) external onlyRebaseContract {
-        uint256 burnAmount = _totalSupply.mul(_twap_percent).div(100);
+        uint256 burnAmount = totalSupply().mul(_twap_percent).div(10000);
         _burn(address(this), burnAmount);
     }
 
     function rebaseInflations(uint256 _twap_percent) external onlyRebaseContract {
         require(_twap_percent >= 1, "must big than 1");
 
-        uint256 inflationReward = _twap_percent.mul(_circulationSupply).div(100).div(5);
+        uint256 inflationReward = _twap_percent.mul(_circulationSupply).div(10000).div(5);
 
         for(uint256 i = 0; i < inflationRewards.length; i++)
         {
