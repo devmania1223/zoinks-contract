@@ -1150,8 +1150,6 @@ contract ZoinksToken is ERC20, Ownable {
         busd.safeTransferFrom(address(msg.sender), address(this), _amount);
         //swap Busd to zoinks     
         uint256 swappedAmount = swapZoinks(_amount);
-        //transfer zoinks from msg.sender to zoinks contract
-        transferFrom(address(msg.sender), address(this), swappedAmount);
         //calculate snacks amount corresponding zoinks amount
         uint256 snacksAmount = calculateBuyAmount(swappedAmount);
         //buy snacks with zoinks
